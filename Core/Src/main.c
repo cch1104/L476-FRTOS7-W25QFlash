@@ -22,12 +22,16 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "string.h"
+#include "stdio.h"
 #define myled GPIO_PIN_5
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+void UART_SEND(UART_HandleTypeDef *huart, char buffer[]){
+	HAL_UART_Transmit(huart, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY);
+}
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -349,13 +353,8 @@ void StartLEDTask(void *argument)
   for(;;)
   {
 	  HAL_GPIO_WritePin(GPIOA, myled, GPIO_PIN_SET);
-	  osDelay(200);
+	  osDelay(400);
 	  HAL_GPIO_WritePin(GPIOA, myled, GPIO_PIN_RESET);
-	  osDelay(100);
-	  HAL_GPIO_WritePin(GPIOA, myled, GPIO_PIN_SET);
-	  osDelay(200);
-	  HAL_GPIO_WritePin(GPIOA, myled, GPIO_PIN_RESET);
-	  osDelay(100);
 	  osDelay(400);
   }
   /* USER CODE END 5 */
@@ -372,9 +371,12 @@ void StartUARTTask(void *argument)
 {
   /* USER CODE BEGIN StartUARTTask */
   /* Infinite loop */
+//	uint32_t counter =0;
   for(;;)
   {
-    osDelay(1);
+	  UART_SEND(&huart2, "UART Task Running...\r\n");
+
+	  osDelay(1000);
   }
   /* USER CODE END StartUARTTask */
 }
