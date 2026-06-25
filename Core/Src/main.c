@@ -25,13 +25,12 @@
 #include "string.h"
 #include "stdio.h"
 #define myled GPIO_PIN_5
+#include "w25qxx.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-void UART_SEND(UART_HandleTypeDef *huart, char buffer[]){
-	HAL_UART_Transmit(huart, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY);
-}
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -63,6 +62,18 @@ const osThreadAttr_t UARTTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for FlashTask */
+osThreadId_t FlashTaskHandle;
+const osThreadAttr_t FlashTask_attributes = {
+  .name = "FlashTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for myMutex01 */
+osMutexId_t myMutex01Handle;
+const osMutexAttr_t myMutex01_attributes = {
+  .name = "myMutex01"
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -74,6 +85,7 @@ static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
 void StartLEDTask(void *argument);
 void StartUARTTask(void *argument);
+void StartFlashTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -81,7 +93,14 @@ void StartUARTTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void UART_SEND(UART_HandleTypeDef *huart, char buffer[]){
+//	HAL_UART_Transmit(huart, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY); // without mutex
+	osMutexAcquire(myMutex01Handle, osWaitForever);
 
+	HAL_UART_Transmit(huart, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+	osMutexRelease(myMutex01Handle);
+}
 /* USER CODE END 0 */
 
 /**
@@ -121,6 +140,9 @@ int main(void)
 
   /* Init scheduler */
   osKernelInitialize();
+  /* Create the mutex(es) */
+  /* creation of myMutex01 */
+  myMutex01Handle = osMutexNew(&myMutex01_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -144,6 +166,9 @@ int main(void)
 
   /* creation of UARTTask */
   UARTTaskHandle = osThreadNew(StartUARTTask, NULL, &UARTTask_attributes);
+
+  /* creation of FlashTask */
+  FlashTaskHandle = osThreadNew(StartFlashTask, NULL, &FlashTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -374,11 +399,78 @@ void StartUARTTask(void *argument)
 //	uint32_t counter =0;
   for(;;)
   {
-	  UART_SEND(&huart2, "UART Task Running...\r\n");
+	  UART_SEND(&huart2, "\r\nUART Task Running...\r\n");
 
-	  osDelay(1000);
+	  osDelay(5000);
   }
   /* USER CODE END StartUARTTask */
+}
+
+/* USER CODE BEGIN Header_StartFlashTask */
+/**
+* @brief Function implementing the FlashTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartFlashTask */
+void StartFlashTask(void *argument)
+{
+  /* USER CODE BEGIN StartFlashTask */
+	char uartBuf[64];
+  /* Infinite loop */
+  for(;;)
+  {
+	  	UART_SEND(&huart2, "\r\nFlash Task Start\r\n");
+
+	  	// JEDEC ID
+	  	uint8_t cmd = 0x9F;
+	  	uint8_t id[3] = {0};
+
+	  	W25Q_CS_LOW();
+	  	HAL_SPI_Transmit(&hspi2, &cmd, 1, HAL_MAX_DELAY);
+	  	HAL_SPI_Receive(&hspi2, id, 3, HAL_MAX_DELAY);
+	  	W25Q_CS_HIGH();
+
+	  	sprintf(uartBuf,
+	  			"JEDEC ID = %02X %02X %02X\r\n",
+	  			id[0], id[1], id[2]);
+
+	  	UART_SEND(&huart2, uartBuf);
+
+	  	// Erase
+	  	W25Q_SectorErase(0x000000);
+	  	UART_SEND(&huart2,"Erase OK\r\n");
+
+	  	// Write
+	  	char writeData[] = "Hello W25Qxx";
+	  	char readData[16] = {0};
+
+	  	W25Q_Write(0x000000,
+	  			   (uint8_t*)writeData,
+	  			   strlen(writeData)+1);
+
+	  	UART_SEND(&huart2,"Write OK\r\n");
+
+	  	// Read
+	  	W25Q_Read(0x000000,
+	  			  (uint8_t*)readData,
+	  			  sizeof(readData));
+
+	  	sprintf(uartBuf,
+	  			"Read = %s\r\n",
+	  			readData);
+
+	  	UART_SEND(&huart2, uartBuf);
+
+	  	if(strcmp(writeData, readData)==0)
+	  		UART_SEND(&huart2,"PASS\r\n");
+	  	else
+	  		UART_SEND(&huart2,"FAIL\r\n");
+
+	UART_SEND(&huart2, "Flash Task finish \r\n");
+    osDelay(10000);
+  }
+  /* USER CODE END StartFlashTask */
 }
 
 /**
