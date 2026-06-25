@@ -18,10 +18,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "string.h"
+#include "stdio.h"
+#define myled GPIO_PIN_5
+#include "w25qxx.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,6 +48,32 @@ SPI_HandleTypeDef hspi2;
 
 UART_HandleTypeDef huart2;
 
+/* Definitions for LEDTask */
+osThreadId_t LEDTaskHandle;
+const osThreadAttr_t LEDTask_attributes = {
+  .name = "LEDTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for UARTTask */
+osThreadId_t UARTTaskHandle;
+const osThreadAttr_t UARTTask_attributes = {
+  .name = "UARTTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for FlashTask */
+osThreadId_t FlashTaskHandle;
+const osThreadAttr_t FlashTask_attributes = {
+  .name = "FlashTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for myMutex01 */
+osMutexId_t myMutex01Handle;
+const osMutexAttr_t myMutex01_attributes = {
+  .name = "myMutex01"
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -53,13 +83,24 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
+void StartLEDTask(void *argument);
+void StartUARTTask(void *argument);
+void StartFlashTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void UART_SEND(UART_HandleTypeDef *huart, char buffer[]){
+//	HAL_UART_Transmit(huart, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY); // without mutex
+	osMutexAcquire(myMutex01Handle, osWaitForever);
 
+	HAL_UART_Transmit(huart, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+	osMutexRelease(myMutex01Handle);
+}
 /* USER CODE END 0 */
 
 /**
@@ -96,6 +137,51 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
+
+  /* Init scheduler */
+  osKernelInitialize();
+  /* Create the mutex(es) */
+  /* creation of myMutex01 */
+  myMutex01Handle = osMutexNew(&myMutex01_attributes);
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of LEDTask */
+  LEDTaskHandle = osThreadNew(StartLEDTask, NULL, &LEDTask_attributes);
+
+  /* creation of UARTTask */
+  UARTTaskHandle = osThreadNew(StartUARTTask, NULL, &UARTTask_attributes);
+
+  /* creation of FlashTask */
+  FlashTaskHandle = osThreadNew(StartFlashTask, NULL, &FlashTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -252,12 +338,22 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : PC0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -267,6 +363,137 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartLEDTask */
+/**
+  * @brief  Function implementing the LEDTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartLEDTask */
+void StartLEDTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+	  HAL_GPIO_WritePin(GPIOA, myled, GPIO_PIN_SET);
+	  osDelay(400);
+	  HAL_GPIO_WritePin(GPIOA, myled, GPIO_PIN_RESET);
+	  osDelay(400);
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartUARTTask */
+/**
+* @brief Function implementing the UARTTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUARTTask */
+void StartUARTTask(void *argument)
+{
+  /* USER CODE BEGIN StartUARTTask */
+  /* Infinite loop */
+//	uint32_t counter =0;
+  for(;;)
+  {
+	  UART_SEND(&huart2, "\r\nUART Task Running...\r\n");
+
+	  osDelay(5000);
+  }
+  /* USER CODE END StartUARTTask */
+}
+
+/* USER CODE BEGIN Header_StartFlashTask */
+/**
+* @brief Function implementing the FlashTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartFlashTask */
+void StartFlashTask(void *argument)
+{
+  /* USER CODE BEGIN StartFlashTask */
+	char uartBuf[64];
+  /* Infinite loop */
+  for(;;)
+  {
+	  	UART_SEND(&huart2, "\r\nFlash Task Start\r\n");
+
+	  	// JEDEC ID
+	  	uint8_t cmd = 0x9F;
+	  	uint8_t id[3] = {0};
+
+	  	W25Q_CS_LOW();
+	  	HAL_SPI_Transmit(&hspi2, &cmd, 1, HAL_MAX_DELAY);
+	  	HAL_SPI_Receive(&hspi2, id, 3, HAL_MAX_DELAY);
+	  	W25Q_CS_HIGH();
+
+	  	sprintf(uartBuf,
+	  			"JEDEC ID = %02X %02X %02X\r\n",
+	  			id[0], id[1], id[2]);
+
+	  	UART_SEND(&huart2, uartBuf);
+
+	  	// Erase
+	  	W25Q_SectorErase(0x000000);
+	  	UART_SEND(&huart2,"Erase OK\r\n");
+
+	  	// Write
+	  	char writeData[] = "Hello W25Qxx";
+	  	char readData[16] = {0};
+
+	  	W25Q_Write(0x000000,
+	  			   (uint8_t*)writeData,
+	  			   strlen(writeData)+1);
+
+	  	UART_SEND(&huart2,"Write OK\r\n");
+
+	  	// Read
+	  	W25Q_Read(0x000000,
+	  			  (uint8_t*)readData,
+	  			  sizeof(readData));
+
+	  	sprintf(uartBuf,
+	  			"Read = %s\r\n",
+	  			readData);
+
+	  	UART_SEND(&huart2, uartBuf);
+
+	  	if(strcmp(writeData, readData)==0)
+	  		UART_SEND(&huart2,"PASS\r\n");
+	  	else
+	  		UART_SEND(&huart2,"FAIL\r\n");
+
+	UART_SEND(&huart2, "Flash Task finish \r\n");
+    osDelay(10000);
+  }
+  /* USER CODE END StartFlashTask */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM7 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM7)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
